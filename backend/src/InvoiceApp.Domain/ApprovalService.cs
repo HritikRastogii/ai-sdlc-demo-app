@@ -1,11 +1,17 @@
+
 namespace InvoiceApp.Domain;
 
 /// <summary>
-/// Moves an invoice through its lifecycle: Draft -> PendingApproval -> Approved or Rejected.
-/// One invoice at a time, decided as a whole by a single approver.
+/// Moves invoices through their lifecycle and enforces role-based approval limits.
 /// </summary>
 public class ApprovalService
 {
+    private const decimal ManagerApprovalLimit = 50000m;
+    private const decimal DirectorApprovalLimit = 500000m;
+
+    private const string ManagerRole = "Manager";
+    private const string DirectorRole = "Director";
+
     private readonly IInvoiceRepository _repository;
 
     public ApprovalService(IInvoiceRepository repository)
@@ -28,14 +34,16 @@ public class ApprovalService
         return invoice;
     }
 
-    public Invoice Approve(string invoiceId, string approver)
+    public Invoice Approve(string invoiceId, string approver, string approverRole)
     {
         var invoice = Find(invoiceId);
         EnsurePending(invoice);
+        EnsureApprovalLimit(invoice, approverRole);
 
         invoice.Status = InvoiceStatus.Approved;
         invoice.DecidedBy = approver;
         invoice.DecidedAt = DateTime.UtcNow;
+
         _repository.Update(invoice);
         return invoice;
     }
@@ -44,7 +52,8 @@ public class ApprovalService
     {
         if (string.IsNullOrWhiteSpace(reason))
         {
-            throw new ArgumentException("A reason is required to reject an invoice.", nameof(reason));
+            throw new ArgumentException(
+                "A reason is required to reject an invoice.", nameof(reason));
         }
 
         var invoice = Find(invoiceId);
@@ -54,8 +63,35 @@ public class ApprovalService
         invoice.DecidedBy = approver;
         invoice.DecidedAt = DateTime.UtcNow;
         invoice.DecisionNote = reason;
+
         _repository.Update(invoice);
         return invoice;
+    }
+
+    private static void EnsureApprovalLimit(Invoice invoice, string approverRole)
+    {
+        switch (approverRole)
+        {
+            case ManagerRole when invoice.Amount <= ManagerApprovalLimit:
+                return;
+
+            case ManagerRole:
+                throw new InvalidOperationException(
+                    $"Manager cannot approve invoice {invoice.Id}. " +
+                    $"The maximum approval amount is {ManagerApprovalLimit:N0}.");
+
+            case DirectorRole when invoice.Amount <= DirectorApprovalLimit:
+                return;
+
+            case DirectorRole:
+                throw new InvalidOperationException(
+                    $"Director cannot approve invoice {invoice.Id}. " +
+                    $"The maximum approval amount is {DirectorApprovalLimit:N0}.");
+
+            default:
+                throw new InvalidOperationException(
+                    $"Role '{approverRole}' is not authorized to approve invoices.");
+        }
     }
 
     private Invoice Find(string invoiceId) =>
