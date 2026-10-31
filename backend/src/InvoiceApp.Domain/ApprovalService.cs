@@ -38,6 +38,32 @@ public class ApprovalService
     {
         var invoice = Find(invoiceId);
         EnsurePending(invoice);
+
+        if (invoice.Amount > DirectorApprovalLimit)
+        {
+            EnsureDirectorRole(approverRole);
+            EnsureDistinctDirector(invoice, approver);
+
+            invoice.ApprovalHistory.Add(new InvoiceApproval
+            {
+                Approver = approver,
+                ApprovedAt = DateTime.UtcNow
+            });
+
+            if (invoice.ApprovalHistory.Count < 2)
+            {
+                _repository.Update(invoice);
+                return invoice;
+            }
+
+            invoice.Status = InvoiceStatus.Approved;
+            invoice.DecidedBy = approver;
+            invoice.DecidedAt = DateTime.UtcNow;
+
+            _repository.Update(invoice);
+            return invoice;
+        }
+
         EnsureApprovalLimit(invoice, approverRole);
 
         invoice.Status = InvoiceStatus.Approved;
@@ -104,6 +130,34 @@ public class ApprovalService
         {
             throw new InvalidOperationException(
                 $"Invoice {invoice.Id} is {invoice.Status}; only pending invoices can be decided.");
+        }
+    }
+
+    private static void EnsureDirectorRole(string approverRole)
+    {
+        if (approverRole != DirectorRole)
+        {
+            throw new InvalidOperationException(
+                "Only Directors can approve invoices above 500,000.");
+        }
+    }
+
+    private static void EnsureDistinctDirector(Invoice invoice, string approver)
+    {
+        if (invoice.ApprovalHistory.Any(
+            approval => string.Equals(
+                approval.Approver,
+                approver,
+                StringComparison.OrdinalIgnoreCase)))
+        {
+            throw new InvalidOperationException(
+                "A different Director must provide the second approval.");
+        }
+
+        if (invoice.ApprovalHistory.Count >= 2)
+        {
+            throw new InvalidOperationException(
+                "The invoice already has the required Director approvals.");
         }
     }
 }

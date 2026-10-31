@@ -63,19 +63,96 @@
 
   function renderPending(pending) {
     show('pending-empty', pending.length === 0);
+
     $('pending-list').replaceChildren(...pending.map((invoice) => {
       const reasonId = `reason-${invoice.id}`;
-      const approve = el('button', { type: 'button', 'aria-label': `Approve invoice ${invoice.id}` }, 'Approve');
-      const reject = el('button', { type: 'button', class: 'danger', 'aria-label': `Reject invoice ${invoice.id}` }, 'Reject');
-      const reason = el('input', { id: reasonId, 'aria-label': `Rejection reason for ${invoice.id}`, placeholder: 'Reason (required to reject)' });
+      const isHighValue = invoice.amount > 500000;
+      const approvalHistory = invoice.approvalHistory || [];
 
-      approve.addEventListener('click', () => decide(`/approvals/${invoice.id}/approve`, {}));
-      reject.addEventListener('click', () => decide(`/approvals/${invoice.id}/reject`, { reason: reason.value }));
+      const alreadyApproved = approvalHistory.some(
+        (approval) => approval.approver === session.username
+      );
 
-      return el('li', {},
-        el('span', {}, `${invoice.id} · ${invoice.customerName} · ${money.format(invoice.amount)}`),
-        el('span', {}, approve),
-        el('div', { class: 'reject-row' }, reason, reject));
+      const canApprove =
+        session.role === 'Director' ||
+        (!isHighValue && session.role === 'Manager');
+
+      const approve = el(
+        'button',
+        {
+          type: 'button',
+          'aria-label': `Approve invoice ${invoice.id}`
+        },
+        'Approve'
+      );
+
+      const reject = el(
+        'button',
+        {
+          type: 'button',
+          class: 'danger',
+          'aria-label': `Reject invoice ${invoice.id}`
+        },
+        'Reject'
+      );
+
+      const reason = el('input', {
+        id: reasonId,
+        'aria-label': `Rejection reason for ${invoice.id}`,
+        placeholder: 'Reason (required to reject)'
+      });
+
+      const actions = [];
+
+      if (isHighValue) {
+        const progress = el(
+          'span',
+          {},
+          `${approvalHistory.length} of 2 Director approvals received`
+        );
+
+        actions.push(progress);
+
+        if (approvalHistory.length > 0) {
+          actions.push(
+            el(
+              'span',
+              {},
+              `First approval by ${approvalHistory[0].approver}`
+            )
+          );
+        }
+      }
+
+      if (canApprove && !(isHighValue && alreadyApproved)) {
+        approve.addEventListener(
+          'click',
+          () => decide(`/approvals/${invoice.id}/approve`, {})
+        );
+
+        actions.push(approve);
+      } else if (isHighValue && alreadyApproved) {
+        actions.push(
+          el('span', {}, 'You have already approved. A different Director must approve.')
+        );
+      }
+
+      reject.addEventListener(
+        'click',
+        () => decide(`/approvals/${invoice.id}/reject`, { reason: reason.value })
+      );
+
+      return el(
+        'li',
+        {},
+        el(
+          'span',
+          {},
+          `${invoice.id} · ${invoice.customerName} · ${money.format(invoice.amount)}`
+        ),
+        el('div', {}, ...actions),
+        el('div', { class: 'reject-row' }, reason, reject)
+      );
     }));
   }
 
