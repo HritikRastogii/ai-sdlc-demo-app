@@ -18,8 +18,12 @@ public class ApprovalServiceTests
             Status = status
         };
 
+    private static ApprovalService ServiceFor(
+        FakeInvoiceRepository repository) =>
+        new(repository);
+
     private static ApprovalService ServiceFor(params Invoice[] invoices) =>
-        new(new FakeInvoiceRepository(invoices));
+        ServiceFor(new FakeInvoiceRepository(invoices));
 
     [Fact]
     public void Submit_MovesDraftToPendingApproval()
@@ -255,25 +259,6 @@ public class ApprovalServiceTests
     }
 
     [Fact]
-    public void Approve_SecondDistinctDirectorCompletesOnlyAfterTwoApprovals()
-    {
-        var invoice = InvoiceWith(
-            "INV-600", InvoiceStatus.PendingApproval, 600000m);
-
-        var service = ServiceFor(invoice);
-
-        service.Approve("INV-600", "demo.director1", "Director");
-
-        Assert.Equal(InvoiceStatus.PendingApproval, invoice.Status);
-        Assert.Null(invoice.DecidedBy);
-
-        service.Approve("INV-600", "demo.director2", "Director");
-
-        Assert.Equal(InvoiceStatus.Approved, invoice.Status);
-        Assert.Equal(2, invoice.ApprovalHistory.Count);
-    }
-
-    [Fact]
     public void Approve_SameDirectorWithDifferentCasingCannotApproveTwice()
     {
         var invoice = InvoiceWith(
@@ -288,5 +273,28 @@ public class ApprovalServiceTests
 
         Assert.Equal(InvoiceStatus.PendingApproval, invoice.Status);
         Assert.Single(invoice.ApprovalHistory);
+    }
+
+    [Fact]
+    public void Approve_ThirdDirectorCannotApproveAlreadyApprovedInvoice()
+    {
+        var invoice = InvoiceWith(
+            "INV-600", InvoiceStatus.PendingApproval, 600000m);
+
+        var repository = new FakeInvoiceRepository(invoice);
+        var service = ServiceFor(repository);
+
+        service.Approve("INV-600", "demo.director1", "Director");
+        service.Approve("INV-600", "demo.director2", "Director");
+
+        var previousUpdateCount = repository.UpdateCallCount;
+
+        Assert.Throws<InvalidOperationException>(
+            () => service.Approve("INV-600", "demo.director3", "Director"));
+
+        Assert.Equal(InvoiceStatus.Approved, invoice.Status);
+        Assert.Equal(2, invoice.ApprovalHistory.Count);
+        Assert.Equal("demo.director2", invoice.DecidedBy);
+        Assert.Equal(previousUpdateCount, repository.UpdateCallCount);
     }
 }
