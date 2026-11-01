@@ -108,4 +108,8 @@ This increment must be committed separately.
 - The in-memory repository must correctly preserve updated invoice state.
 - API role authorization and Domain business authorization must remain consistent.
 - Concurrent requests must not count one user twice or approve an invoice prematurely.
-- The local environment currently lacks the .NET SDK; backend build, unit tests, and mutation testing remain blocked until it is installed.
+- The development environment uses .NET SDK 8.0.427.
+- The backend unit-test suite has been executed successfully, with 37 tests passing.
+- Stryker.NET 4.13.0 has been used for baseline and final mutation testing.
+- The configured hook runner has not yet been validated in this development environment; automatic hook execution remains unverified.
+- Mutation scores must be interpreted alongside the number of killed, survived, no-coverage, ignored, and compile-error mutants.
