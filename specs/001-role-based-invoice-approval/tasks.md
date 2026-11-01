@@ -51,7 +51,7 @@
 - [x] T038 Run the workshop review prompt against the implementation diff.
 - [x] T039 Record every review finding with a fixed, dismissed, or deferred verdict and justification.
 - [x] T040 Complete AI-INTERACTION-LOG.md.
-- [ ] T041 Complete root-level ASSIGNMENT.md with commits, test results, mutation scores, review findings, and video link.
-- [ ] T042 Record the 8–10 minute demonstration video.
-- [ ] T043 Upload the video and add its link to ASSIGNMENT.md.
-- [ ] T044 Verify all hand-in requirements and push the completed feature branch.
+- [x] T041 Complete root-level ASSIGNMENT.md with commits, test results, mutation scores, review findings, and video link.
+- [x] T042 Record the 8–10 minute demonstration video.
+- [x] T043 Upload the video and add its link to ASSIGNMENT.md.
+- [x] T044 Verify all hand-in requirements and push the completed feature branch.

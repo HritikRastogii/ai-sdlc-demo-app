@@ -4,8 +4,8 @@
 
 - Repository: https://github.com/HritikRastogii/ai-sdlc-demo-app
 - Feature branch: `feature/role-based-invoice-approval`
-- Pull request URL: **PENDING**
-- Demo video URL: **PENDING — not recorded or uploaded**
+- Pull request URL: https://github.com/HritikRastogii/ai-sdlc-demo-app/pull/1
+- Demo video: `Demo_Video.mp4` (recorded and uploaded)
 - Latest committed revision observed: `d815eeb` (`chore: enable and verify AI workflow hooks`). Separate pre-existing uncommitted source, test, and hook-log changes were present; this documentation update did not alter them, and no final commit is claimed.
 
 ## Feature and Business Rules
@@ -86,11 +86,11 @@ No findings were dismissed. Deferred items remain outstanding; the passing revie
 
 ## Submission Checklist
 
-- [ ] Pull request created with the implementation commits — **PR URL pending**.
+- [x] Pull request created with the implementation commits — https://github.com/HritikRastogii/ai-sdlc-demo-app/pull/1
 - [x] Project guidance, agent definitions, and Spec Kit feature artifacts are present and reviewed.
 - [x] Unit tests cover the approval rules and reported negative scenarios; the recorded suite result is 43/0/0.
 - [x] Playwright Manager over-limit rejection test is included and passed.
 - [x] Baseline and final mutation scores are recorded with JSON-report context.
 - [x] Review findings and fixed/deferred dispositions are documented.
 - [x] AI interaction log records work and verification evidence.
-- [ ] Record and upload the 8–10 minute demonstration video — **pending; no video is claimed**.
+- [x] Record and upload the 8–10 minute demonstration video.
