@@ -38,15 +38,29 @@ public class ApprovalService
     {
         var invoice = Find(invoiceId);
         EnsurePending(invoice);
+        EnsureValidApprover(approver);
+        EnsureSupportedRole(approverRole);
+
+        if (invoice.Amount < 0)
+        {
+            throw new InvalidOperationException(
+                $"Invoice {invoice.Id} has a negative amount and cannot be approved.");
+        }
 
         if (invoice.Amount > DirectorApprovalLimit)
         {
-            EnsureDirectorRole(approverRole);
+            if (approverRole != DirectorRole)
+            {
+                throw new InvalidOperationException(
+                    "Only Directors can approve invoices above 500,000.");
+            }
+
             EnsureDistinctDirector(invoice, approver);
 
             invoice.ApprovalHistory.Add(new InvoiceApproval
             {
                 Approver = approver,
+                Role = approverRole,
                 ApprovedAt = DateTime.UtcNow
             });
 
@@ -66,6 +80,12 @@ public class ApprovalService
 
         EnsureApprovalLimit(invoice, approverRole);
 
+        invoice.ApprovalHistory.Add(new InvoiceApproval
+        {
+            Approver = approver,
+            Role = approverRole,
+            ApprovedAt = DateTime.UtcNow
+        });
         invoice.Status = InvoiceStatus.Approved;
         invoice.DecidedBy = approver;
         invoice.DecidedAt = DateTime.UtcNow;
@@ -133,12 +153,21 @@ public class ApprovalService
         }
     }
 
-    private static void EnsureDirectorRole(string approverRole)
+    private static void EnsureValidApprover(string approver)
     {
-        if (approverRole != DirectorRole)
+        if (string.IsNullOrWhiteSpace(approver))
         {
             throw new InvalidOperationException(
-                "Only Directors can approve invoices above 500,000.");
+                "An approver identity is required.");
+        }
+    }
+
+    private static void EnsureSupportedRole(string approverRole)
+    {
+        if (approverRole is not ManagerRole and not DirectorRole)
+        {
+            throw new InvalidOperationException(
+                $"Role '{approverRole}' is not authorized to approve invoices.");
         }
     }
 
