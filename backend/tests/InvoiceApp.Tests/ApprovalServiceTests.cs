@@ -592,6 +592,62 @@ public class ApprovalServiceTests
     }
 
     [Fact]
+    public void Submit_RejectsNonexistentInvoice()
+    {
+        var service = ServiceFor();
+
+        var exception = Assert.Throws<KeyNotFoundException>(
+            () => service.Submit("INV-MISSING"));
+
+        Assert.Equal("Invoice INV-MISSING was not found.", exception.Message);
+    }
+
+    [Fact]
+    public void Reject_RejectsNonexistentInvoice()
+    {
+        var service = ServiceFor();
+
+        var exception = Assert.Throws<KeyNotFoundException>(
+            () => service.Reject(
+                "INV-MISSING", "demo.manager", "Duplicate invoice"));
+
+        Assert.Equal("Invoice INV-MISSING was not found.", exception.Message);
+    }
+
+    [Fact]
+    public void Approve_RejectsInvoiceThatAlreadyHasTwoDirectorApprovals_LeavesInvoiceUnchanged()
+    {
+        var invoice = InvoiceWith(
+            "INV-600", InvoiceStatus.PendingApproval, 600000m);
+
+        invoice.ApprovalHistory.AddRange(new[]
+        {
+            new InvoiceApproval
+            {
+                Approver = "demo.director1",
+                Role = "Director"
+            },
+            new InvoiceApproval
+            {
+                Approver = "demo.director2",
+                Role = "Director"
+            }
+        });
+
+        var service = ServiceFor(invoice);
+        var previousState = CaptureState(invoice);
+
+        var exception = Assert.Throws<InvalidOperationException>(
+            () => service.Approve("INV-600", "demo.director3", "Director"));
+
+        Assert.Equal(
+            "The invoice already has the required Director approvals.",
+            exception.Message);
+
+        AssertUnchanged(previousState, invoice);
+    }
+
+    [Fact]
     public async Task Submit_ConcurrentWithApproval_LeavesConsistentLifecycleState()
     {
         var invoice = InvoiceWith("INV-1", InvoiceStatus.Draft);
