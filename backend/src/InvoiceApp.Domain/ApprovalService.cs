@@ -35,7 +35,7 @@ public class ApprovalService
             }
 
             invoice.Status = InvoiceStatus.PendingApproval;
-            return invoice;
+            return invoice.CreateSnapshot();
         });
     }
 
@@ -77,13 +77,13 @@ public class ApprovalService
 
                 if (invoice.ApprovalHistory.Count < 2)
                 {
-                    return invoice;
+                    return invoice.CreateSnapshot();
                 }
 
                 invoice.Status = InvoiceStatus.Approved;
                 invoice.DecidedBy = approver;
                 invoice.DecidedAt = DateTime.UtcNow;
-                return invoice;
+                return invoice.CreateSnapshot();
             }
 
             EnsureApprovalLimit(invoice, approverRole);
@@ -97,7 +97,7 @@ public class ApprovalService
             invoice.Status = InvoiceStatus.Approved;
             invoice.DecidedBy = approver;
             invoice.DecidedAt = DateTime.UtcNow;
-            return invoice;
+            return invoice.CreateSnapshot();
         });
     }
 
@@ -123,7 +123,7 @@ public class ApprovalService
             invoice.DecidedBy = approver;
             invoice.DecidedAt = DateTime.UtcNow;
             invoice.DecisionNote = reason;
-            return invoice;
+            return invoice.CreateSnapshot();
         });
     }
 

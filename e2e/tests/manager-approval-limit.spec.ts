@@ -2,9 +2,7 @@ import { test, expect } from '@playwright/test';
 
 test('Manager cannot approve an invoice above 50000', async ({ page, request }) => {
   const username = process.env.E2E_MANAGER_USERNAME || 'demo.manager';
-  const password = process.env.E2E_MANAGER_PASSWORD;
-
-  test.skip(!password, 'Set E2E_MANAGER_PASSWORD before running this test.');
+  const password = process.env.E2E_MANAGER_PASSWORD || 'ChangeMe123!';
 
   const loginResponse = await request.post('/api/auth/login', {
     data: { username, password }
@@ -55,6 +53,7 @@ test('Manager cannot approve an invoice above 50000', async ({ page, request }) 
   expect(getResponse.status()).toBe(200);
 
   const unchangedInvoice = await getResponse.json();
+  expect(unchangedInvoice).toEqual(beforeApproval);
   expect(unchangedInvoice.status).toBe(beforeApproval.status);
   expect(unchangedInvoice.approvalHistory).toEqual(beforeApproval.approvalHistory);
   expect(unchangedInvoice.decidedBy).toBe(beforeApproval.decidedBy);
