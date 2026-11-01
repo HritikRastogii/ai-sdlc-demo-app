@@ -109,7 +109,8 @@ This increment must be committed separately.
 - API role authorization and Domain business authorization must remain consistent.
 - Concurrent requests must not count one user twice or approve an invoice prematurely.
 - The development environment uses .NET SDK 8.0.427.
-- The backend unit-test suite has been executed successfully, with 37 tests passing.
-- Stryker.NET 4.13.0 has been used for baseline and final mutation testing.
-- The configured hook runner has not yet been validated in this development environment; automatic hook execution remains unverified.
-- Mutation scores must be interpreted alongside the number of killed, survived, no-coverage, ignored, and compile-error mutants.
+- The recorded final backend unit-test run passed 43 tests, with 0 failures and 0 skipped tests.
+- The Manager over-limit Playwright UI test passed once.
+- Stryker.NET 4.13.0 JSON reports record a baseline score of 34.69% and a final score of 60.22%. The mutant population and coverage changed between runs, so the scores are not a controlled comparison over an identical set of code and tests.
+- The configured hooks were verified for `sessionStart`, `userPromptSubmitted`, `postToolUse`, and `sessionEnd` using the hook configuration and event log.
+- The latest review passed after the identified repository-snapshot and test-coverage findings were addressed. Additional high-value approval UI and API-authentication test scenarios remain deferred.

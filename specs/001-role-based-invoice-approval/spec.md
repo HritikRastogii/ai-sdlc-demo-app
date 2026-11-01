@@ -111,7 +111,7 @@ As a user, I want a clear explanation when an approval attempt is rejected so th
 - All amounts are expressed in the same currency units used by the existing invoice application.
 - The existing authentication and session mechanism will be reused.
 - The authenticated session role is the source of authority; clients cannot supply or override their own role.
-- For invoices above 500,000, both approvers must be Directors. This interpretation ensures that a Manager cannot bypass the Manager's 50,000 limit and that the second approver is a Director.
+- **Implementation assumption**: For invoices above 500,000, both approvers must be Directors. The assignment explicitly requires the second approver to be a Director but does not state the first approver's role; requiring both to be Directors is the implementation's interpretation and prevents a Manager from participating above the Manager's 50,000 limit.
 - The first Director approval for an invoice above 500,000 records approval progress but does not change the invoice status to Approved.
 - Existing invoice lifecycle behavior remains intact except where approval behavior is explicitly extended.
 - Concurrency protection must prevent two requests from the same user from being counted as two distinct approvals.
@@ -122,4 +122,3 @@ As a user, I want a clear explanation when an approval attempt is rejected so th
 - Invoice rejection behavior is unchanged.
 - External payment processing is out of scope.
 - New organizational hierarchy or user-management functionality is out of scope.
-

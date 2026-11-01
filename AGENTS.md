@@ -17,7 +17,7 @@ Invoice approval demo app: ASP.NET Core 8 Web API with a small static web UI.
 - Every endpoint is behind sign-in. Restrict actions with `[RequireRole("...")]`: destructive actions are Admin only, approvals use Manager and Director roles. Admin access does not bypass Domain approval limits.
 - Business rules go in the Domain project, never in controllers.
 - Register services in `Program.cs`. Repositories are interfaces in Domain with an in-memory implementation in Api.
-- Every new rule or endpoint needs tests. Use `FakeInvoiceRepository` in tests.
+- Every new rule or endpoint needs tests. Use `FakeInvoiceRepository` for service tests; use the in-memory repository when testing repository behavior.
 - Use clear names; no one-letter variables or `flag` parameters.
 - End-to-end tests use page objects and role-based locators (`getByRole`, `getByLabel`), never CSS or XPath selectors.
 
