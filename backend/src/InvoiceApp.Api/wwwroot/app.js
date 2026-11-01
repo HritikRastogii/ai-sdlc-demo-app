@@ -74,8 +74,7 @@
       );
 
       const canApprove =
-        session.role === 'Director' ||
-        (invoice.amount <= 50000 && session.role === 'Manager');
+        session.role === 'Manager' || session.role === 'Director';
 
       const approve = el(
         'button',
