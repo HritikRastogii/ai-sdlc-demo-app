@@ -21,41 +21,72 @@ public class ApprovalService
 
     public Invoice Submit(string invoiceId)
     {
-        var invoice = Find(invoiceId);
-
-        if (invoice.Status != InvoiceStatus.Draft)
+        return _repository.ExecuteAtomically(invoiceId, invoice =>
         {
-            throw new InvalidOperationException(
-                $"Invoice {invoiceId} is {invoice.Status}; only drafts can be submitted.");
-        }
+            if (invoice is null)
+            {
+                throw new KeyNotFoundException($"Invoice {invoiceId} was not found.");
+            }
 
-        invoice.Status = InvoiceStatus.PendingApproval;
-        _repository.Update(invoice);
-        return invoice;
+            if (invoice.Status != InvoiceStatus.Draft)
+            {
+                throw new InvalidOperationException(
+                    $"Invoice {invoiceId} is {invoice.Status}; only drafts can be submitted.");
+            }
+
+            invoice.Status = InvoiceStatus.PendingApproval;
+            return invoice;
+        });
     }
 
     public Invoice Approve(string invoiceId, string approver, string approverRole)
     {
-        var invoice = Find(invoiceId);
-        EnsurePending(invoice);
-        EnsureValidApprover(approver);
-        EnsureSupportedRole(approverRole);
-
-        if (invoice.Amount < 0)
+        return _repository.ExecuteAtomically(invoiceId, invoice =>
         {
-            throw new InvalidOperationException(
-                $"Invoice {invoice.Id} has a negative amount and cannot be approved.");
-        }
-
-        if (invoice.Amount > DirectorApprovalLimit)
-        {
-            if (approverRole != DirectorRole)
+            if (invoice is null)
             {
-                throw new InvalidOperationException(
-                    "Only Directors can approve invoices above 500,000.");
+                throw new KeyNotFoundException($"Invoice {invoiceId} was not found.");
             }
 
-            EnsureDistinctDirector(invoice, approver);
+            EnsurePending(invoice);
+            EnsureValidApprover(approver);
+            EnsureSupportedRole(approverRole);
+
+            if (invoice.Amount < 0)
+            {
+                throw new InvalidOperationException(
+                    $"Invoice {invoice.Id} has a negative amount and cannot be approved.");
+            }
+
+            if (invoice.Amount > DirectorApprovalLimit)
+            {
+                if (approverRole != DirectorRole)
+                {
+                    throw new InvalidOperationException(
+                        "Only Directors can approve invoices above 500,000.");
+                }
+
+                EnsureDistinctDirector(invoice, approver);
+
+                invoice.ApprovalHistory.Add(new InvoiceApproval
+                {
+                    Approver = approver,
+                    Role = approverRole,
+                    ApprovedAt = DateTime.UtcNow
+                });
+
+                if (invoice.ApprovalHistory.Count < 2)
+                {
+                    return invoice;
+                }
+
+                invoice.Status = InvoiceStatus.Approved;
+                invoice.DecidedBy = approver;
+                invoice.DecidedAt = DateTime.UtcNow;
+                return invoice;
+            }
+
+            EnsureApprovalLimit(invoice, approverRole);
 
             invoice.ApprovalHistory.Add(new InvoiceApproval
             {
@@ -63,35 +94,11 @@ public class ApprovalService
                 Role = approverRole,
                 ApprovedAt = DateTime.UtcNow
             });
-
-            if (invoice.ApprovalHistory.Count < 2)
-            {
-                _repository.Update(invoice);
-                return invoice;
-            }
-
             invoice.Status = InvoiceStatus.Approved;
             invoice.DecidedBy = approver;
             invoice.DecidedAt = DateTime.UtcNow;
-
-            _repository.Update(invoice);
             return invoice;
-        }
-
-        EnsureApprovalLimit(invoice, approverRole);
-
-        invoice.ApprovalHistory.Add(new InvoiceApproval
-        {
-            Approver = approver,
-            Role = approverRole,
-            ApprovedAt = DateTime.UtcNow
         });
-        invoice.Status = InvoiceStatus.Approved;
-        invoice.DecidedBy = approver;
-        invoice.DecidedAt = DateTime.UtcNow;
-
-        _repository.Update(invoice);
-        return invoice;
     }
 
     public Invoice Reject(string invoiceId, string approver, string reason)
@@ -102,16 +109,22 @@ public class ApprovalService
                 "A reason is required to reject an invoice.", nameof(reason));
         }
 
-        var invoice = Find(invoiceId);
-        EnsurePending(invoice);
+        return _repository.ExecuteAtomically(invoiceId, invoice =>
+        {
+            if (invoice is null)
+            {
+                throw new KeyNotFoundException($"Invoice {invoiceId} was not found.");
+            }
 
-        invoice.Status = InvoiceStatus.Rejected;
-        invoice.DecidedBy = approver;
-        invoice.DecidedAt = DateTime.UtcNow;
-        invoice.DecisionNote = reason;
+            EnsurePending(invoice);
+            EnsureValidApprover(approver);
 
-        _repository.Update(invoice);
-        return invoice;
+            invoice.Status = InvoiceStatus.Rejected;
+            invoice.DecidedBy = approver;
+            invoice.DecidedAt = DateTime.UtcNow;
+            invoice.DecisionNote = reason;
+            return invoice;
+        });
     }
 
     private static void EnsureApprovalLimit(Invoice invoice, string approverRole)
@@ -139,10 +152,6 @@ public class ApprovalService
                     $"Role '{approverRole}' is not authorized to approve invoices.");
         }
     }
-
-    private Invoice Find(string invoiceId) =>
-        _repository.GetById(invoiceId)
-        ?? throw new KeyNotFoundException($"Invoice {invoiceId} was not found.");
 
     private static void EnsurePending(Invoice invoice)
     {

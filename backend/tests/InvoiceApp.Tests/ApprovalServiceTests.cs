@@ -282,6 +282,33 @@ public class ApprovalServiceTests
             () => service.Reject("INV-1", "demo.manager", "  "));
     }
 
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("  ")]
+    public void Reject_RejectsBlankApprover_LeavesInvoiceUnchanged(string? approver)
+    {
+        var invoice = InvoiceWith("INV-1", InvoiceStatus.PendingApproval);
+        invoice.DecidedBy = "previous.user";
+        invoice.DecidedAt = DateTime.UtcNow.AddDays(-1);
+        invoice.DecisionNote = "Previous note";
+        invoice.ApprovalHistory.Add(new InvoiceApproval
+        {
+            Approver = "previous.approver",
+            Role = "Director",
+            ApprovedAt = DateTime.UtcNow.AddHours(-1)
+        });
+
+        var service = ServiceFor(invoice);
+        var previousState = CaptureState(invoice);
+
+        var exception = Assert.Throws<InvalidOperationException>(
+            () => service.Reject("INV-1", approver!, "Duplicate invoice"));
+
+        Assert.Equal("An approver identity is required.", exception.Message);
+        AssertUnchanged(previousState, invoice);
+    }
+
     [Fact]
     public void Approve_FirstDirectorApproval_LeavesHighValueInvoicePending()
     {
@@ -398,5 +425,220 @@ public class ApprovalServiceTests
 
         AssertUnchanged(previousState, invoice);
         Assert.Equal(previousUpdateCount, repository.UpdateCallCount);
+    }
+
+    [Fact]
+    public async Task Approve_ConcurrentRequestsFromSameDirector_CountsOnlyOneApproval()
+    {
+        var invoice = InvoiceWith(
+            "INV-600", InvoiceStatus.PendingApproval, 600000m);
+        var service = ServiceFor(invoice);
+        using var ready = new CountdownEvent(2);
+        using var start = new ManualResetEventSlim(false);
+
+        Task<(bool Succeeded, InvoiceSnapshot State)> ApproveConcurrently() =>
+            Task.Factory.StartNew(() =>
+        {
+            ready.Signal();
+            start.Wait();
+
+            try
+            {
+                service.Approve("INV-600", "demo.director1", "Director");
+                return (true, CaptureState(invoice));
+            }
+            catch (InvalidOperationException)
+            {
+                return (false, CaptureState(invoice));
+            }
+        }, CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
+
+        var attempts = Task.WhenAll(ApproveConcurrently(), ApproveConcurrently());
+        var bothReady = ready.Wait(TimeSpan.FromSeconds(10));
+        start.Set();
+        Assert.True(bothReady, "Both approval requests should reach the synchronization gate.");
+
+        var results = await attempts.WaitAsync(TimeSpan.FromSeconds(10));
+
+        Assert.Single(results, attempt => attempt.Succeeded);
+        var rejectedAttempt = Assert.Single(results, attempt => !attempt.Succeeded);
+        Assert.Equal(InvoiceStatus.PendingApproval, invoice.Status);
+        var approval = Assert.Single(invoice.ApprovalHistory);
+        Assert.Equal("demo.director1", approval.Approver);
+        Assert.Equal("Director", approval.Role);
+        Assert.Null(invoice.DecidedBy);
+        Assert.Null(invoice.DecidedAt);
+        Assert.Null(invoice.DecisionNote);
+        AssertUnchanged(rejectedAttempt.State, invoice);
+    }
+
+    [Fact]
+    public async Task Approve_ConcurrentRequestsFromDistinctDirectors_CompleteWithTwoApprovals()
+    {
+        var invoice = InvoiceWith(
+            "INV-600", InvoiceStatus.PendingApproval, 600000m);
+        var service = ServiceFor(invoice);
+        using var ready = new CountdownEvent(2);
+        using var start = new ManualResetEventSlim(false);
+
+        Task<bool> ApproveConcurrently(string approver) => Task.Factory.StartNew(() =>
+        {
+            ready.Signal();
+            start.Wait();
+
+            try
+            {
+                service.Approve("INV-600", approver, "Director");
+                return true;
+            }
+            catch (InvalidOperationException)
+            {
+                return false;
+            }
+        }, CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
+
+        var attempts = Task.WhenAll(
+            ApproveConcurrently("demo.director1"),
+            ApproveConcurrently("demo.director2"));
+        var bothReady = ready.Wait(TimeSpan.FromSeconds(10));
+        start.Set();
+        Assert.True(bothReady, "Both approval requests should reach the synchronization gate.");
+
+        var results = await attempts.WaitAsync(TimeSpan.FromSeconds(10));
+
+        Assert.All(results, Assert.True);
+        Assert.Equal(InvoiceStatus.Approved, invoice.Status);
+        Assert.Equal(2, invoice.ApprovalHistory.Count);
+        Assert.Equal(
+            2,
+            invoice.ApprovalHistory
+                .Select(approval => approval.Approver)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Count());
+        Assert.All(invoice.ApprovalHistory, approval => Assert.Equal("Director", approval.Role));
+        Assert.Contains(
+            invoice.DecidedBy,
+            new[] { "demo.director1", "demo.director2" });
+        Assert.NotNull(invoice.DecidedAt);
+    }
+
+    [Fact]
+    public async Task Approve_ConcurrentApprovalAndRejection_OnlyOneDecisionSucceeds()
+    {
+        var invoice = InvoiceWith(
+            "INV-600", InvoiceStatus.PendingApproval, 1000m);
+        var service = ServiceFor(invoice);
+        using var ready = new CountdownEvent(2);
+        using var start = new ManualResetEventSlim(false);
+
+        Task<(bool Succeeded, InvoiceSnapshot State)> ApproveConcurrently() =>
+            Task.Factory.StartNew(() =>
+            {
+                ready.Signal();
+                start.Wait();
+
+                try
+                {
+                    service.Approve("INV-600", "demo.director1", "Director");
+                    return (true, CaptureState(invoice));
+                }
+                catch (InvalidOperationException)
+                {
+                    return (false, CaptureState(invoice));
+                }
+            }, CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
+
+        Task<(bool Succeeded, InvoiceSnapshot State)> RejectConcurrently() =>
+            Task.Factory.StartNew(() =>
+            {
+                ready.Signal();
+                start.Wait();
+
+                try
+                {
+                    service.Reject("INV-600", "demo.manager", "Not approved");
+                    return (true, CaptureState(invoice));
+                }
+                catch (InvalidOperationException)
+                {
+                    return (false, CaptureState(invoice));
+                }
+            }, CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
+
+        var attempts = Task.WhenAll(ApproveConcurrently(), RejectConcurrently());
+        var bothReady = ready.Wait(TimeSpan.FromSeconds(10));
+        start.Set();
+        Assert.True(bothReady, "Both lifecycle requests should reach the synchronization gate.");
+
+        var results = await attempts.WaitAsync(TimeSpan.FromSeconds(10));
+
+        Assert.Single(results, attempt => attempt.Succeeded);
+        var rejectedAttempt = Assert.Single(results, attempt => !attempt.Succeeded);
+        AssertUnchanged(rejectedAttempt.State, invoice);
+        Assert.Contains(invoice.Status, new[] { InvoiceStatus.Approved, InvoiceStatus.Rejected });
+
+        if (invoice.Status == InvoiceStatus.Approved)
+        {
+            Assert.Equal("demo.director1", invoice.DecidedBy);
+            Assert.Null(invoice.DecisionNote);
+            Assert.Single(invoice.ApprovalHistory);
+        }
+        else
+        {
+            Assert.Equal("demo.manager", invoice.DecidedBy);
+            Assert.Equal("Not approved", invoice.DecisionNote);
+            Assert.Empty(invoice.ApprovalHistory);
+        }
+    }
+
+    [Fact]
+    public async Task Submit_ConcurrentWithApproval_LeavesConsistentLifecycleState()
+    {
+        var invoice = InvoiceWith("INV-1", InvoiceStatus.Draft);
+        var service = ServiceFor(invoice);
+        using var ready = new CountdownEvent(2);
+        using var start = new ManualResetEventSlim(false);
+
+        Task<bool> RunConcurrently(Func<Invoice> operation) => Task.Factory.StartNew(() =>
+        {
+            ready.Signal();
+            start.Wait();
+
+            try
+            {
+                operation();
+                return true;
+            }
+            catch (InvalidOperationException)
+            {
+                return false;
+            }
+        }, CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
+
+        var attempts = Task.WhenAll(
+            RunConcurrently(() => service.Submit("INV-1")),
+            RunConcurrently(() => service.Approve("INV-1", "demo.manager", "Manager")));
+        var bothReady = ready.Wait(TimeSpan.FromSeconds(10));
+        start.Set();
+        Assert.True(bothReady, "Both lifecycle requests should reach the synchronization gate.");
+
+        var results = await attempts.WaitAsync(TimeSpan.FromSeconds(10));
+
+        Assert.True(results[0], "Submitting a draft should succeed.");
+        if (results[1])
+        {
+            Assert.Equal(InvoiceStatus.Approved, invoice.Status);
+            Assert.Single(invoice.ApprovalHistory);
+            Assert.Equal("demo.manager", invoice.DecidedBy);
+            Assert.NotNull(invoice.DecidedAt);
+        }
+        else
+        {
+            Assert.Equal(InvoiceStatus.PendingApproval, invoice.Status);
+            Assert.Empty(invoice.ApprovalHistory);
+            Assert.Null(invoice.DecidedBy);
+            Assert.Null(invoice.DecidedAt);
+            Assert.Null(invoice.DecisionNote);
+        }
     }
 }
