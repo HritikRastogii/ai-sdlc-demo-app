@@ -19,18 +19,33 @@ public class InMemoryInvoiceRepository : IInvoiceRepository
 
     public IReadOnlyList<Invoice> GetAll()
     {
-        lock (_lock) return _invoices.ToList();
+        lock (_lock) return _invoices.Select(invoice => invoice.CreateSnapshot()).ToList();
     }
 
     public Invoice? GetById(string id)
     {
-        lock (_lock) return _invoices.FirstOrDefault(i => i.Id == id);
+        lock (_lock) return _invoices.FirstOrDefault(i => i.Id == id)?.CreateSnapshot();
+    }
+
+    public T ExecuteAtomically<T>(string invoiceId, Func<Invoice?, T> operation)
+    {
+        lock (_lock)
+        {
+            var invoice = _invoices.FirstOrDefault(i => i.Id == invoiceId);
+            return operation(invoice);
+        }
     }
 
     public IReadOnlyList<Invoice> GetByIds(IEnumerable<string> ids)
     {
         var wanted = ids.ToHashSet();
-        lock (_lock) return _invoices.Where(i => wanted.Contains(i.Id)).ToList();
+        lock (_lock)
+        {
+            return _invoices
+                .Where(invoice => wanted.Contains(invoice.Id))
+                .Select(invoice => invoice.CreateSnapshot())
+                .ToList();
+        }
     }
 
     public Invoice Add(Invoice invoice)
@@ -42,8 +57,9 @@ public class InMemoryInvoiceRepository : IInvoiceRepository
                 invoice.Id = $"INV-{_nextNumber++}";
             }
 
-            _invoices.Add(invoice);
-            return invoice;
+            var storedInvoice = invoice.CreateSnapshot();
+            _invoices.Add(storedInvoice);
+            return storedInvoice.CreateSnapshot();
         }
     }
 
@@ -52,7 +68,7 @@ public class InMemoryInvoiceRepository : IInvoiceRepository
         lock (_lock)
         {
             var index = _invoices.FindIndex(i => i.Id == invoice.Id);
-            if (index >= 0) _invoices[index] = invoice;
+            if (index >= 0) _invoices[index] = invoice.CreateSnapshot();
         }
     }
 

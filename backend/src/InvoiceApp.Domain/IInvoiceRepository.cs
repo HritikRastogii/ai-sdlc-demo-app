@@ -5,6 +5,7 @@ public interface IInvoiceRepository
     IReadOnlyList<Invoice> GetAll();
     Invoice? GetById(string id);
     IReadOnlyList<Invoice> GetByIds(IEnumerable<string> ids);
+    T ExecuteAtomically<T>(string invoiceId, Func<Invoice?, T> operation);
     Invoice Add(Invoice invoice);
     void Update(Invoice invoice);
     bool Remove(string id);

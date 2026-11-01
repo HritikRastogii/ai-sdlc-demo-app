@@ -10,4 +10,26 @@ public class Invoice
     public string? DecidedBy { get; set; }
     public DateTime? DecidedAt { get; set; }
     public string? DecisionNote { get; set; }
+    public List<InvoiceApproval> ApprovalHistory { get; set; } = new();
+
+    public Invoice CreateSnapshot() =>
+        new()
+        {
+            Id = Id,
+            CustomerName = CustomerName,
+            Amount = Amount,
+            Status = Status,
+            CreatedAt = CreatedAt,
+            DecidedBy = DecidedBy,
+            DecidedAt = DecidedAt,
+            DecisionNote = DecisionNote,
+            ApprovalHistory = ApprovalHistory
+                .Select(approval => new InvoiceApproval
+                {
+                    Approver = approval.Approver,
+                    Role = approval.Role,
+                    ApprovedAt = approval.ApprovedAt
+                })
+                .ToList()
+        };
 }

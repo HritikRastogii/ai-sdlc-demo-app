@@ -1,11 +1,17 @@
+
 namespace InvoiceApp.Domain;
 
 /// <summary>
-/// Moves an invoice through its lifecycle: Draft -> PendingApproval -> Approved or Rejected.
-/// One invoice at a time, decided as a whole by a single approver.
+/// Moves invoices through their lifecycle and enforces role-based approval limits.
 /// </summary>
 public class ApprovalService
 {
+    private const decimal ManagerApprovalLimit = 50000m;
+    private const decimal DirectorApprovalLimit = 500000m;
+
+    private const string ManagerRole = "Manager";
+    private const string DirectorRole = "Director";
+
     private readonly IInvoiceRepository _repository;
 
     public ApprovalService(IInvoiceRepository repository)
@@ -15,52 +21,137 @@ public class ApprovalService
 
     public Invoice Submit(string invoiceId)
     {
-        var invoice = Find(invoiceId);
-
-        if (invoice.Status != InvoiceStatus.Draft)
+        return _repository.ExecuteAtomically(invoiceId, invoice =>
         {
-            throw new InvalidOperationException(
-                $"Invoice {invoiceId} is {invoice.Status}; only drafts can be submitted.");
-        }
+            if (invoice is null)
+            {
+                throw new KeyNotFoundException($"Invoice {invoiceId} was not found.");
+            }
 
-        invoice.Status = InvoiceStatus.PendingApproval;
-        _repository.Update(invoice);
-        return invoice;
+            if (invoice.Status != InvoiceStatus.Draft)
+            {
+                throw new InvalidOperationException(
+                    $"Invoice {invoiceId} is {invoice.Status}; only drafts can be submitted.");
+            }
+
+            invoice.Status = InvoiceStatus.PendingApproval;
+            return invoice.CreateSnapshot();
+        });
     }
 
-    public Invoice Approve(string invoiceId, string approver)
+    public Invoice Approve(string invoiceId, string approver, string approverRole)
     {
-        var invoice = Find(invoiceId);
-        EnsurePending(invoice);
+        return _repository.ExecuteAtomically(invoiceId, invoice =>
+        {
+            if (invoice is null)
+            {
+                throw new KeyNotFoundException($"Invoice {invoiceId} was not found.");
+            }
 
-        invoice.Status = InvoiceStatus.Approved;
-        invoice.DecidedBy = approver;
-        invoice.DecidedAt = DateTime.UtcNow;
-        _repository.Update(invoice);
-        return invoice;
+            EnsurePending(invoice);
+            EnsureValidApprover(approver);
+            EnsureSupportedRole(approverRole);
+
+            if (invoice.Amount < 0)
+            {
+                throw new InvalidOperationException(
+                    $"Invoice {invoice.Id} has a negative amount and cannot be approved.");
+            }
+
+            if (invoice.Amount > DirectorApprovalLimit)
+            {
+                if (approverRole != DirectorRole)
+                {
+                    throw new InvalidOperationException(
+                        "Only Directors can approve invoices above 500,000.");
+                }
+
+                EnsureDistinctDirector(invoice, approver);
+
+                invoice.ApprovalHistory.Add(new InvoiceApproval
+                {
+                    Approver = approver,
+                    Role = approverRole,
+                    ApprovedAt = DateTime.UtcNow
+                });
+
+                if (invoice.ApprovalHistory.Count < 2)
+                {
+                    return invoice.CreateSnapshot();
+                }
+
+                invoice.Status = InvoiceStatus.Approved;
+                invoice.DecidedBy = approver;
+                invoice.DecidedAt = DateTime.UtcNow;
+                return invoice.CreateSnapshot();
+            }
+
+            EnsureApprovalLimit(invoice, approverRole);
+
+            invoice.ApprovalHistory.Add(new InvoiceApproval
+            {
+                Approver = approver,
+                Role = approverRole,
+                ApprovedAt = DateTime.UtcNow
+            });
+            invoice.Status = InvoiceStatus.Approved;
+            invoice.DecidedBy = approver;
+            invoice.DecidedAt = DateTime.UtcNow;
+            return invoice.CreateSnapshot();
+        });
     }
 
     public Invoice Reject(string invoiceId, string approver, string reason)
     {
         if (string.IsNullOrWhiteSpace(reason))
         {
-            throw new ArgumentException("A reason is required to reject an invoice.", nameof(reason));
+            throw new ArgumentException(
+                "A reason is required to reject an invoice.", nameof(reason));
         }
 
-        var invoice = Find(invoiceId);
-        EnsurePending(invoice);
+        return _repository.ExecuteAtomically(invoiceId, invoice =>
+        {
+            if (invoice is null)
+            {
+                throw new KeyNotFoundException($"Invoice {invoiceId} was not found.");
+            }
 
-        invoice.Status = InvoiceStatus.Rejected;
-        invoice.DecidedBy = approver;
-        invoice.DecidedAt = DateTime.UtcNow;
-        invoice.DecisionNote = reason;
-        _repository.Update(invoice);
-        return invoice;
+            EnsurePending(invoice);
+            EnsureValidApprover(approver);
+
+            invoice.Status = InvoiceStatus.Rejected;
+            invoice.DecidedBy = approver;
+            invoice.DecidedAt = DateTime.UtcNow;
+            invoice.DecisionNote = reason;
+            return invoice.CreateSnapshot();
+        });
     }
 
-    private Invoice Find(string invoiceId) =>
-        _repository.GetById(invoiceId)
-        ?? throw new KeyNotFoundException($"Invoice {invoiceId} was not found.");
+    private static void EnsureApprovalLimit(Invoice invoice, string approverRole)
+    {
+        switch (approverRole)
+        {
+            case ManagerRole when invoice.Amount <= ManagerApprovalLimit:
+                return;
+
+            case ManagerRole:
+                throw new InvalidOperationException(
+                    $"Manager cannot approve invoice {invoice.Id}. " +
+                    $"The maximum approval amount is {ManagerApprovalLimit:N0}.");
+
+            case DirectorRole when invoice.Amount <= DirectorApprovalLimit:
+                return;
+
+            case DirectorRole:
+                throw new InvalidOperationException(
+                    $"Director cannot approve invoice {invoice.Id}. " +
+                    $"The maximum approval amount is {DirectorApprovalLimit:N0}.");
+
+            default:
+                throw new InvalidOperationException(
+                    $"Role '{approverRole}' is not authorized to approve invoices.");
+        }
+    }
 
     private static void EnsurePending(Invoice invoice)
     {
@@ -68,6 +159,43 @@ public class ApprovalService
         {
             throw new InvalidOperationException(
                 $"Invoice {invoice.Id} is {invoice.Status}; only pending invoices can be decided.");
+        }
+    }
+
+    private static void EnsureValidApprover(string approver)
+    {
+        if (string.IsNullOrWhiteSpace(approver))
+        {
+            throw new InvalidOperationException(
+                "An approver identity is required.");
+        }
+    }
+
+    private static void EnsureSupportedRole(string approverRole)
+    {
+        if (approverRole is not ManagerRole and not DirectorRole)
+        {
+            throw new InvalidOperationException(
+                $"Role '{approverRole}' is not authorized to approve invoices.");
+        }
+    }
+
+    private static void EnsureDistinctDirector(Invoice invoice, string approver)
+    {
+        if (invoice.ApprovalHistory.Any(
+            approval => string.Equals(
+                approval.Approver,
+                approver,
+                StringComparison.OrdinalIgnoreCase)))
+        {
+            throw new InvalidOperationException(
+                "A different Director must provide the second approval.");
+        }
+
+        if (invoice.ApprovalHistory.Count >= 2)
+        {
+            throw new InvalidOperationException(
+                "The invoice already has the required Director approvals.");
         }
     }
 }
